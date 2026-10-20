@@ -11,9 +11,7 @@
 com.spotify.tv.android                  # Spotify
 com.graymatrix.did                      # ZEE5
 com.fancode.tv                          # FanCode
-tv.airtel.xstream.tvapp                 # Airtel Xstream Play
 com.shemaroo.shemarootv                 # ShemarooMe
-com.htlabs.ottplay                      # OTTplay
 com.amazon.minitv.androidtv.app         # Amazon miniTV
 
 # --- Google extras that run in the background on a 1 GB TV ---

@@ -153,6 +153,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private int greetingColor;
     /** A Home press arrived while Home was in the background: the festival effect to play once it is back. */
     private String effectOnResume;
+    /** Between onStart and onStop: Home is on screen. */
+    private boolean isVisible;
     private boolean isResumed;
     /** The festival effect on screen, or null: one at a time. */
     private View festiveEffect;
@@ -531,12 +533,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         grid.scrollToPosition(0);
         lastFocused = 0;
         lastFocusedKey = adapter.getItemCount() > 0 ? adapter.keyAt(0) : null;
-        rebuildOnResume = true;
+        // Home pressed while Home is already on screen: the tiles are current, and rebuilding them while the
+        // festival effect plays made it stutter (74% janky frames). Rebuild only when coming back from an app.
+        if (!isVisible) rebuildOnResume = true;
     }
 
     @Override
     protected void onStart() {
         super.onStart();
+        isVisible = true;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(packageReceiver, packageFilter, Context.RECEIVER_NOT_EXPORTED);
         } else {
@@ -570,7 +575,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (effectOnResume != null) {
             String e = effectOnResume;
             effectOnResume = null;
-            handler.postDelayed(() -> playFestiveEffect(e), 450);
+            handler.postDelayed(() -> playFestiveEffect(e), 700);   // after the tiles settle
         }
     }
 
@@ -673,6 +678,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onStop() {
         super.onStop();
+        isVisible = false;
         unregisterReceiver(packageReceiver);
         rebuildOnResume = true;
     }

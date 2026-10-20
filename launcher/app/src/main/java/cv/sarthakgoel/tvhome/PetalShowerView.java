@@ -30,6 +30,16 @@ public final class PetalShowerView extends View {
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint edge = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint vein = new Paint(Paint.ANTI_ALIAS_FLAG);
+    /**
+     * Each petal shape in each colour, front and back, drawn once into a small bitmap. Drawing 60 petals as
+     * three anti-aliased paths each (180 path draws a frame) stuttered on a 1 GB MediaTek TV; one bitmap
+     * draw per petal is a fraction of that GPU work and looks the same at petal size.
+     */
+    private static final int SPRITE = 64;
+    private static final float SPRITE_UNIT = SPRITE * 0.8f;   // 1 path unit in sprite pixels, with a margin
+    private final android.graphics.Bitmap[][][] sprites = new android.graphics.Bitmap[3][COLORS.length][2];
+    private final android.graphics.Matrix matrix = new android.graphics.Matrix();
+    private final Paint spritePaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
 
     // per-petal state, grown only when a bigger shower is asked for
     private int count;
@@ -71,6 +81,27 @@ public final class PetalShowerView extends View {
         vein.setStrokeWidth(0.035f);
         vein.setStrokeCap(Paint.Cap.ROUND);
         vein.setColor(EDGE);
+        for (int sh = 0; sh < shapes.length; sh++) {
+            for (int col = 0; col < COLORS.length; col++) {
+                for (int side = 0; side < 2; side++) sprites[sh][col][side] = renderSprite(sh, col, side == 1);
+            }
+        }
+    }
+
+    private android.graphics.Bitmap renderSprite(int sh, int col, boolean back) {
+        android.graphics.Bitmap b = android.graphics.Bitmap.createBitmap(SPRITE, SPRITE, android.graphics.Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        c.translate(SPRITE / 2f, SPRITE / 2f);
+        c.scale(SPRITE_UNIT, SPRITE_UNIT);
+        int base = COLORS[col];
+        fill.setColor(scale(base, back ? 0.78f : 1f));
+        edge.setColor(scale(base, 0.55f));
+        edge.setAlpha(191);
+        vein.setAlpha(64);
+        c.drawPath(shapes[sh], fill);
+        c.drawPath(shapes[sh], edge);
+        c.drawPath(veins[sh], vein);
+        return b;
     }
 
     /**
@@ -147,23 +178,15 @@ public final class PetalShowerView extends View {
             float sx = Math.abs(flip) < 0.08f ? (flip < 0f ? -0.08f : 0.08f) : flip;
             int a = p > 0.75f ? (int) (255 * (1f - (p - 0.75f) / 0.25f)) : 255;
 
-            // turned edge-on it looks darker; the back is darker still
-            float shade = (flip < 0f ? 0.78f : 1f) * (0.8f + 0.2f * Math.abs(flip));
-            int base = COLORS[color[i]];
-            fill.setColor(scale(base, shade));
-            fill.setAlpha(a);
-            edge.setColor(scale(base, 0.55f));
-            edge.setAlpha(a * 3 / 4);
-            vein.setAlpha(a / 4);
-
-            c.save();
-            c.translate(x, y);
-            c.rotate(angle);
-            c.scale(len * sx, len);
-            c.drawPath(shapes[shape[i]], fill);
-            c.drawPath(shapes[shape[i]], edge);
-            c.drawPath(veins[shape[i]], vein);
-            c.restore();
+            // the back is darker; turned edge-on it fades a little
+            float shade = 0.8f + 0.2f * Math.abs(flip);
+            spritePaint.setAlpha((int) (a * shade));
+            float unit = len / SPRITE_UNIT;
+            matrix.setTranslate(-SPRITE / 2f, -SPRITE / 2f);
+            matrix.postScale(unit * sx, unit);
+            matrix.postRotate(angle);
+            matrix.postTranslate(x, y);
+            c.drawBitmap(sprites[shape[i]][color[i]][flip < 0f ? 1 : 0], matrix, spritePaint);
         }
         postInvalidateOnAnimation();
     }
