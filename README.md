@@ -10,6 +10,8 @@
 
 Measured with `./measure.sh` on a **OnePlus Y Series, 1 GB RAM, Android 11**, ~2 minutes after boot.
 
+![Before/after chart: apps open about twice as fast, free RAM up from 162 MB to 265 MB](docs/speed.png)
+
 | | Before | After |
 |---|---|---|
 | Free RAM | 162 MB | **~265 MB** |
@@ -33,6 +35,16 @@ Measured with `./measure.sh` on a **OnePlus Y Series, 1 GB RAM, Android 11**, ~2
 | Home-press animation | All apps + App library | Family Photos picker |
 |---|---|---|
 | ![](docs/screenshots/petals.png) | ![](docs/screenshots/library.png) | ![](docs/screenshots/photos-picker.png) |
+
+## Gallery
+
+**Festival backgrounds.** Every one is drawn by code (`tools/wallgen/make_walls.py`), no stock art. Shown with a mock of the Home layout on top:
+
+![All festival backgrounds under a mock Home screen](docs/festivals-mock.jpg)
+
+**Diwali Home**, with the 4x2 app grid:
+
+![Home screen during Diwali](docs/screenshots/home-diwali.png)
 
 ## Quick start
 
@@ -60,6 +72,8 @@ pip3 install -r tools/requirements.txt
 ```
 
 Photos are turned upright, fitted to the screen (portrait photos are shown whole, never cropped) and **stripped of GPS location and all metadata** before they leave your laptop. Then open the **Family Photos** tile on the TV to choose which ones play.
+
+<img src="launcher/app/src/main/res/drawable-nodpi/banner_photos.png" alt="Family Photos tile" width="320">
 
 ## Make it yours
 
