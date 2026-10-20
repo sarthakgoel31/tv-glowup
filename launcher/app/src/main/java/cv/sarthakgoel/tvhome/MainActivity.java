@@ -55,6 +55,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
+import android.widget.TextClock;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -76,6 +77,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * tvOS style home: black, a pinned dock row, an app grid, and one glass highlight that springs between tiles.
@@ -190,6 +193,25 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private RecyclerView.OnScrollListener pendingFocusScroll;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
+
+    // ---- weather and time-of-day ambience (see Weather) ----
+    /** Last reading (live or cached), or null: time of day only. */
+    private Weather weather;
+    private String weatherLat = "", weatherLon = "";
+    private boolean weatherEffects;
+    private boolean festivalWallpaper;
+    private File ambientDir;
+    private int skyIntensity, skyShown;
+    private boolean weatherFetching;
+    /** Last fetch attempt, kept across recreate() so a dead network is not retried on every rebuild. */
+    private static long weatherAttemptAt;
+    /** adb-only test override of the ambient picture (debug_ambient), or null. */
+    private static String debugAmbient;
+    private String shownAmbient = "";
+    private final ExecutorService weatherExecutor = Executors.newSingleThreadExecutor();
+    private TextClock dateClock;
+    private CharSequence dateFormat;
+    private String dateFormatShown = "";
     /** Refreshes the network pill when the connection changes: at boot Wi-Fi often connects after Home is shown. */
     private final ConnectivityManager.NetworkCallback networkCallback = new ConnectivityManager.NetworkCallback() {
         @Override
@@ -244,6 +266,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             updateWifiLabel();
             sky.update();
             wallpaperPlayer.update();
+            updateWeather();
+            updateAmbient();
+            updateTemperature();
             handler.postDelayed(this, MINUTE_MS);
         }
     };
@@ -276,6 +301,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         wallpaperPlayer = new WallpaperPlayer(this, root, cfg);
         sky = findViewById(R.id.sky);
         sky.setIntensity(cfg.skyIntensity);
+        skyIntensity = skyShown = cfg.skyIntensity;
+        weatherLat = cfg.weatherLat;
+        weatherLon = cfg.weatherLon;
+        weatherEffects = cfg.weatherEffects;
+        festivalWallpaper = cfg.festivalWallpaper;
+        File themeDir = Config.dir(this);
+        ambientDir = themeDir == null ? null : new File(themeDir, "ambient");
+        weather = weatherLat.isEmpty() ? null : Weather.cached(this);
+        dateClock = findViewById(R.id.date);
+        dateFormat = dateClock.getFormat24Hour();
         glass = findViewById(R.id.glass);
         if (festive) glass.setAccent(festival.accentColor());
         ambient = findViewById(R.id.ambient);
@@ -523,8 +558,19 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (openLauncherSettingsIfAsked(intent)) return;
         if (intent == null || !intent.hasCategory(Intent.CATEGORY_HOME)) return;
         // The Home button on a festival with an effect: it plays on every press, also when Home is already open.
+        String ambientTest = debugAmbientExtra(intent);
+        if (ambientTest != null) {
+            debugAmbient = "off".equals(ambientTest) ? null : ambientTest;
+            updateAmbient();
+        }
         String effect = debugEffect(intent);
         if (effect == null && festive && festival.hasEffect()) effect = festival.effect;
+        // An ordinary day: the weather outside plays instead (nothing for a clear sky).
+        if (effect == null && !festive && weatherEffects && weather != null
+                && weather.fresh(System.currentTimeMillis())) {
+            String condition = weather.condition();
+            if (!Weather.CLEAR.equals(condition)) effect = condition;
+        }
         if (effect != null) {
             String e = effect;
             if (isResumed) handler.postDelayed(() -> playFestiveEffect(e), 150);
@@ -569,6 +615,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (showStats) startStats();
         sky.update();
         wallpaperPlayer.start();
+        updateWeather();
+        updateAmbient();
+        updateTemperature();
         handler.postDelayed(minuteTick, MINUTE_MS);
         isResumed = true;
         if (festive && diya != null) diya.start();
@@ -696,6 +745,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     protected void onDestroy() {
         super.onDestroy();
         wallpaperPlayer.close();
+        weatherExecutor.shutdown();
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
         TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
         if (tim != null) tim.unregisterCallback(inputCallback);
@@ -1701,6 +1751,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             case Festival.EFFECT_SPARKLES: ms = 2800; break;
             case Festival.EFFECT_EMBERS: ms = 2600; break;
             case Festival.EFFECT_TRICOLOUR: ms = 2800; break;
+            case Weather.RAIN: ms = 2500; break;
+            case Weather.STORM: ms = 2800; break;
+            case Weather.FOG: ms = 3000; break;
+            case Weather.HOT: ms = 2800; break;
+            case Weather.COLD: ms = 3000; break;
+            case Weather.CLOUDY: ms = 3000; break;
             default: return;
         }
         FestiveEffectView view = new FestiveEffectView(this, effect);
@@ -1724,10 +1780,105 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             case Festival.EFFECT_SPARKLES:
             case Festival.EFFECT_EMBERS:
             case Festival.EFFECT_TRICOLOUR:
+            case Weather.RAIN:
+            case Weather.STORM:
+            case Weather.FOG:
+            case Weather.HOT:
+            case Weather.COLD:
+            case Weather.CLOUDY:
                 return e;
             default:
                 return null;
         }
+    }
+
+    /**
+     * Test hook: a Home intent with {@code --es debug_ambient dusk} (any ambient/&lt;name&gt;.jpg name) shows that
+     * picture whatever the weather, festival or time; {@code off} goes back to the live pick. ADB only.
+     */
+    private String debugAmbientExtra(Intent intent) {
+        String a = intent.getStringExtra("debug_ambient");
+        if (a == null) return null;
+        if (Settings.Global.getInt(getContentResolver(), Settings.Global.ADB_ENABLED, 0) != 1) return null;
+        a = a.trim().toLowerCase(Locale.ROOT);
+        return a.matches("[a-z-]{1,20}") ? a : null;
+    }
+
+    // ---- weather ---------------------------------------------------------------------------------
+
+    /** Reads the weather in the background when the last reading is 30 minutes old; never blocks. */
+    private void updateWeather() {
+        if (weatherLat.isEmpty() || weatherFetching) return;
+        long now = System.currentTimeMillis();
+        if (weather != null && now >= weather.fetchedAt && now - weather.fetchedAt < Weather.REFRESH_MS) return;
+        // a failed attempt waits 10 minutes before the next one
+        if (weatherAttemptAt != 0 && now >= weatherAttemptAt && now - weatherAttemptAt < 10 * 60_000L) return;
+        weatherAttemptAt = now;
+        weatherFetching = true;
+        final Context app = getApplicationContext();
+        final String lat = weatherLat, lon = weatherLon;
+        try {
+            weatherExecutor.execute(() -> {
+                Weather w = Weather.fetch(app, lat, lon);
+                handler.post(() -> {
+                    weatherFetching = false;
+                    if (w == null || isDestroyed()) return;
+                    weather = w;
+                    updateAmbient();
+                    updateTemperature();
+                });
+            });
+        } catch (Exception e) {
+            weatherFetching = false;
+        }
+    }
+
+    /**
+     * Picks the ambient picture for the weather and the time of day and shows it in place of the theme's
+     * wallpaper. A festival with its own picture wins; a missing file keeps the theme's wallpaper.
+     */
+    private void updateAmbient() {
+        String pick = debugAmbient;
+        if (pick == null && !(festive && festivalWallpaper) && ambientDir != null) {
+            Weather w = weather;
+            boolean fresh = w != null && w.fresh(System.currentTimeMillis());
+            Calendar now = Calendar.getInstance();
+            int minute = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE);
+            String slot = Weather.slot(minute, w != null ? w.sunrise : Weather.SUNRISE_FALLBACK,
+                    w != null ? w.sunset : Weather.SUNSET_FALLBACK);
+            pick = Weather.ambient(fresh ? w.condition() : null, slot);
+        }
+        File file = pick == null || ambientDir == null ? null : new File(ambientDir, pick + ".jpg");
+        if (file != null && !(file.isFile() && file.length() > 0)) file = null;
+        String key = file == null ? "" : pick;
+        if (!key.equals(shownAmbient)) {
+            android.util.Log.i("TvHome.Weather", "ambient: " + (file == null ? "theme wallpaper" : pick)
+                    + (debugAmbient != null ? " (debug)" : "") + (weather != null ? " condition=" + weather.condition()
+                    + " temp=" + Math.round(weather.tempC) : ""));
+            shownAmbient = key;
+        }
+        wallpaperPlayer.setOverride(file);
+        // the ambient picture already carries the time of day: no sky tint over it
+        int tint = wallpaperPlayer.overridden() ? 0 : skyIntensity;
+        if (tint != skyShown) {
+            skyShown = tint;
+            sky.setIntensity(tint);
+        }
+    }
+
+    /** "· 31°" after the date while a recent reading is known. */
+    private void updateTemperature() {
+        if (dateClock == null || dateFormat == null) return;
+        Weather w = weather;
+        String f = dateFormat.toString();
+        if (w != null && w.fresh(System.currentTimeMillis())) {
+            // short weekday and month make room for the temperature on the one line the date has
+            f = f.replace("EEEE", "EEE").replace("MMMM", "MMM") + "'  \u00B7  " + Math.round(w.tempC) + "\u00B0'";
+        }
+        if (f.equals(dateFormatShown)) return;
+        dateFormatShown = f;
+        dateClock.setFormat12Hour(f);
+        dateClock.setFormat24Hour(f);
     }
 
     private static int liftTowardsWhite(int argb, float amount) {

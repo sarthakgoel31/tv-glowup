@@ -33,6 +33,12 @@ final class WallpaperPlayer {
     private boolean closed;
     private boolean loading;
     private String displayed = "";
+    /** Ambient picture shown instead of the theme's (weather and time of day), or null for the theme's own. */
+    private File override;
+    /** The picture fading in over {@link #image} during a crossfade; empty otherwise. At most two bitmaps live. */
+    private final ImageView front;
+    private final boolean enabled;
+    private static final long FADE_MS = 800;
 
     WallpaperPlayer(Context context, FrameLayout root, Config config) {
         this.root = root;
@@ -45,15 +51,22 @@ final class WallpaperPlayer {
         image = new ImageView(context);
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
         image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        front = new ImageView(context);
+        front.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        front.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        front.setVisibility(View.GONE);
+        enabled = config.wallpaperEnabled;
         if (config.wallpaperEnabled && !files.isEmpty()) {
             root.addView(image, 0, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            root.addView(front, 1, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             // No shade layer at all when the theme doesn't dim: a full-screen view is overdraw on 1 GB TVs.
             if (config.wallpaperDim > 0) {
                 View shade = new View(context);
                 shade.setBackgroundColor((config.wallpaperDim * 255 / 100) << 24);
                 shade.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-                root.addView(shade, 1, new FrameLayout.LayoutParams(
+                root.addView(shade, 2, new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             }
             showFirst();
@@ -100,8 +113,29 @@ final class WallpaperPlayer {
         decoder.shutdownNow();
     }
 
+    /**
+     * Shows {@code file} (an ambient picture) instead of the theme's wallpaper, crossfading to it; null goes
+     * back to the theme's. Ignored when the theme has no wallpaper or turned it off.
+     */
+    void setOverride(File file) {
+        if (!enabled || files.isEmpty()) return;
+        if (file == null ? override == null : file.equals(override)) return;
+        override = file;
+        update();
+    }
+
+    /** Whether an ambient picture is (being) shown in place of the theme's. */
+    boolean overridden() {
+        return override != null;
+    }
+
     void update() {
         if (!active || closed || loading || files.isEmpty()) return;
+        if (override != null) {
+            String key = "ambient:" + override.getPath();
+            if (!key.equals(displayed)) swap(override, key, false);
+            return;
+        }
         String previous = preferences.getString("image", "");
         File selected = WallpaperRotation.find(files, previous);
         long changed = preferences.getLong("changed", 0);
@@ -109,7 +143,11 @@ final class WallpaperPlayer {
             selected = WallpaperRotation.pick(files, previous, random);
         }
         if (selected == null || selected.getName().equals(displayed)) return;
-        File next = selected;
+        swap(selected, selected.getName(), true);
+    }
+
+    /** Decodes {@code next} off the main thread, then crossfades to it. {@code rotation}: a theme image. */
+    private void swap(File next, String key, boolean rotation) {
         loading = true;
         decoder.execute(() -> {
             Bitmap bitmap = decode(next);
@@ -120,19 +158,51 @@ final class WallpaperPlayer {
                     return;
                 }
                 if (bitmap == null) {
-                    files.remove(next);
                     Log.w("TvHome.Wallpaper", "Skipping unreadable image: " + next.getName());
+                    if (rotation) files.remove(next);
+                    else if (next.equals(override)) override = null;   // a broken ambient: back to the theme's
                     update();
                     return;
                 }
-                image.setImageBitmap(bitmap);
-                displayed = next.getName();
-                if (!displayed.equals(previous) || changed == 0) {
-                    preferences.edit().putString("image", displayed)
-                            .putLong("changed", System.currentTimeMillis()).apply();
+                // a newer choice arrived while this one decoded: drop it and fetch that one instead
+                boolean wanted = override != null ? key.equals("ambient:" + override.getPath()) : rotation;
+                if (!wanted) {
+                    bitmap.recycle();
+                    update();
+                    return;
+                }
+                crossfade(bitmap);
+                displayed = key;
+                if (rotation) {
+                    String previous = preferences.getString("image", "");
+                    long changed = preferences.getLong("changed", 0);
+                    if (!displayed.equals(previous) || changed == 0) {
+                        preferences.edit().putString("image", displayed)
+                                .putLong("changed", System.currentTimeMillis()).apply();
+                    }
                 }
             });
         });
+    }
+
+    /** Fades {@code bitmap} in over the current picture, then makes it the picture: two bitmaps at most. */
+    private void crossfade(Bitmap bitmap) {
+        front.animate().cancel();
+        if (front.getVisibility() == View.VISIBLE && front.getDrawable() != null) {
+            image.setImageDrawable(front.getDrawable());   // a fade cut short: keep where it got to
+        }
+        if (image.getDrawable() == null || !image.isAttachedToWindow() || !front.isAttachedToWindow()) {
+            image.setImageBitmap(bitmap);
+            return;
+        }
+        front.setImageBitmap(bitmap);
+        front.setAlpha(0f);
+        front.setVisibility(View.VISIBLE);
+        front.animate().alpha(1f).setDuration(FADE_MS).withEndAction(() -> {
+            image.setImageBitmap(bitmap);      // the old bitmap is dropped here
+            front.setVisibility(View.GONE);
+            front.setImageDrawable(null);
+        }).start();
     }
 
     private Bitmap decode(File file) {

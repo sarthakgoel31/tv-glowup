@@ -90,6 +90,12 @@ final class Config {
     final boolean overlayApplied;
     /** Festive skin from a theme (festival, festival_until, greeting, accent_color); {@link Festival#NONE} if none. */
     final Festival festival;
+    /** The active festival shows its own picture (festivals/<name>.jpg): it wins over the weather ambience. */
+    final boolean festivalWallpaper;
+    /** Weather location as decimal strings (config.json weather_lat, weather_lon); empty turns weather off. */
+    final String weatherLat, weatherLon;
+    /** Weather animations on a Home press on ordinary days (config.json weather_effects, default true). */
+    final boolean weatherEffects;
 
     private Config(List<String> dockApps, boolean fillDock, List<String> hiddenApps, String liveTvPackage,
                    String liveTvAction, String sourcePanelService, String sourcePanelAction, String inputAction,
@@ -98,7 +104,12 @@ final class Config {
                    boolean showHomeSettingsShortcut, boolean showStats, boolean appLibrary, int backgroundColor, int skyIntensity,
                    int[] settingsKeycodes, boolean settingsKeyPanel, boolean wallpaperEnabled, File wallpaper, List<File> wallpapers,
                    int wallpaperRotationMinutes, int wallpaperDim, boolean overlayApplied,
-                   Festival festival, int[] inputKeycodes, List<String> appKeys) {
+                   Festival festival, int[] inputKeycodes, List<String> appKeys, boolean festivalWallpaper,
+                   String weatherLat, String weatherLon, boolean weatherEffects) {
+        this.festivalWallpaper = festivalWallpaper;
+        this.weatherLat = weatherLat;
+        this.weatherLon = weatherLon;
+        this.weatherEffects = weatherEffects;
         this.inputKeycodes = inputKeycodes;
         this.appKeys = Collections.unmodifiableList(appKeys);
         this.dockApps = Collections.unmodifiableList(dockApps);
@@ -235,21 +246,39 @@ final class Config {
                 string(json, "festival_until", ""), string(json, "greeting", ""), string(json, "accent_color", ""));
         // A festival with its own picture (festivals/<name>.jpg in the theme folder) shows it instead of the
         // theme's wallpaper while it lasts; without the file the theme's wallpaper stays.
+        boolean festivalWallpaper = false;
         if (wallpaperEnabled && dir != null && !festival.wallpaper.isEmpty()
                 && festival.active(java.time.LocalDate.now())) {
             File festive = new File(new File(dir, "festivals"), festival.wallpaper + ".jpg");
             if (festive.isFile() && festive.length() > 0) {
                 wallpapers.clear();
                 wallpapers.add(festive);
+                festivalWallpaper = true;
             }
         }
+        String weatherLat = json == null ? "" : coordinate(string(json, "weather_lat", ""), 90);
+        String weatherLon = json == null ? "" : coordinate(string(json, "weather_lon", ""), 180);
+        if (weatherLat.isEmpty() || weatherLon.isEmpty()) weatherLat = weatherLon = "";
+        boolean weatherEffects = json == null || bool(json, "weather_effects", true);
 
         return new Config(dock, fillDock, hidden, liveTv, liveTvAction, panelService, panelAction, inputAction,
                 Math.max(1, columns), Math.max(0, rowsBelow), animations, advancedEffects,
                 shamsi, greetingName, moduleCards, reducedMotion, dockTitle, dockRow, reorderButton, vpn, homeSettings, showStats, library, background,
                 Math.max(0, Math.min(100, skyIntensity)), settingsKeycodes, settingsKeyPanel, wallpaperEnabled, wallpaper,
                 wallpapers, rotationMinutes, wallpaperDim, applied,
-                festival, inputKeycodes, appKeys);
+                festival, inputKeycodes, appKeys, festivalWallpaper, weatherLat, weatherLon, weatherEffects);
+    }
+
+    /** A decimal degree within +-{@code limit}, normalised for a URL; "" when malformed or empty. */
+    private static String coordinate(String v, double limit) {
+        if (v == null || v.isEmpty() || v.length() > 16) return "";
+        try {
+            double d = Double.parseDouble(v);
+            if (Double.isNaN(d) || Math.abs(d) > limit) return "";
+            return String.format(java.util.Locale.ROOT, "%.4f", d);
+        } catch (NumberFormatException e) {
+            return "";
+        }
     }
 
     private static void syncThemeChoices(SharedPreferences choices, File dir, File config) {

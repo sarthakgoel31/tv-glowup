@@ -6,7 +6,7 @@
 #   1. backup     snapshot of every package + setting (backups/, never uploaded anywhere)
 #   2. debloat    pm disable-user on the list in devices/<device>/disable.txt (nothing is uninstalled)
 #   3. launcher   builds the TV Glowup Home app, installs it, starts it and checks it really came up
-#   4. theme      pushes themes/india (festival calendar, wallpapers)
+#   4. theme      pushes themes/india (festival calendar, wallpapers, weather/time-of-day backgrounds)
 #   5. Home       makes it the Home screen; the stock launcher is disabled only if it was the Home,
 #                 and only after ours started. If Home doesn't end up ours, everything is rolled back.
 #   6. extras     remote-key accessibility service, Family Photos screensaver, background-app limit
@@ -67,11 +67,14 @@ if [ "${SHOW_WIFI_NAME:-0}" = 1 ]; then tvsh pm grant "$PKG" android.permission.
 step "4/6 Theme ($THEME)"
 T="themes/$THEME"
 [ -f "$T/config.json" ] || die "no theme at $T"
-tvsh mkdir -p "$FILES_DIR/festivals"
+tvsh mkdir -p "$FILES_DIR/festivals" "$FILES_DIR/ambient"
 adb -s "$TV" push "$T/config.json" "$FILES_DIR/config.json" < /dev/null >/dev/null
 [ -f "$T/wallpaper.jpg" ] && adb -s "$TV" push "$T/wallpaper.jpg" "$FILES_DIR/wallpaper.jpg" < /dev/null >/dev/null
 if [ -d "$T/festivals" ]; then
   for f in "$T"/festivals/*.jpg; do adb -s "$TV" push "$f" "$FILES_DIR/festivals/" < /dev/null >/dev/null; done
+fi
+if [ -d "$T/ambient" ]; then
+  for f in "$T"/ambient/*.jpg; do adb -s "$TV" push "$f" "$FILES_DIR/ambient/" < /dev/null >/dev/null; done
 fi
 # A fresh marker makes the launcher drop old on-TV layout choices and re-read the theme.
 tvsh "printf '%s' '$(date +%s)$$' > $FILES_DIR/theme_revision"

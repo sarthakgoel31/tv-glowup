@@ -1,10 +1,12 @@
 package cv.sarthakgoel.tvhome;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RadialGradient;
+import android.graphics.RectF;
 import android.graphics.Shader;
 import android.os.SystemClock;
 import android.view.View;
@@ -24,6 +26,10 @@ import java.util.Random;
  * <li>{@code embers}: warm sparks rising from the bottom over a faint glow, cooling from yellow to red;</li>
  * <li>{@code tricolour}: saffron, white and green paper confetti falling and flipping gently.</li>
  * </ul>
+ * And the weather on ordinary days ({@link Weather}): {@code rain} thin slanted streaks; {@code storm} heavier
+ * rain with one or two soft flashes; {@code fog} slow translucent haze bands; {@code hot} rising heat specks and
+ * a sun bloom pulsing top right; {@code cold} sparse frost glints; {@code cloudy} soft clouds drifting across the
+ * top. The weather draws small sprites made up front (anti-aliased paths stutter on weak TV GPUs).
  * At most {@link #MAX} particles, everything finishes within the duration, then the callback runs on the main
  * thread. All paints, shaders and particle arrays are made up front: onDraw allocates nothing. The view takes no
  * focus, clicks or accessibility.
@@ -46,6 +52,14 @@ public final class FestiveEffectView extends View {
     private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint haze = new Paint();
     private final Paint streak = new Paint(Paint.ANTI_ALIAS_FLAG);
+    /** Weather sprites: pre-rendered once, drawn scaled with bitmap filtering only. */
+    private final Paint sprite = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final Paint flash = new Paint();
+    private final RectF dst = new RectF();
+    private Bitmap spriteA, spriteB;
+    /** Storm flash times (s) and peak alphas; rain slant in degrees. */
+    private final float[] flashT = new float[2], flashA = new float[2];
+    private float slant;
     /** Unit-radius radial gradients, drawn by scaling the canvas so one shader serves every size. */
     private final Shader[] shaders;
 
@@ -104,10 +118,103 @@ public final class FestiveEffectView extends View {
             case Festival.EFFECT_EMBERS:
                 shaders = new Shader[]{radial(0xCCFF9A3A, 0x33FF6A1A, 0.35f)};
                 break;
+            case Weather.RAIN:
+            case Weather.STORM:
+                spriteA = streakSprite();
+                shaders = new Shader[0];
+                break;
+            case Weather.FOG:
+                spriteA = blobSprite(128, 40, 0xFFE4E8EE, 0.6f);
+                shaders = new Shader[0];
+                break;
+            case Weather.HOT:
+                spriteA = blobSprite(16, 16, 0xFFFFD08A, 0.3f);      // a speck of shimmering air
+                spriteB = blobSprite(96, 96, 0xFFFFE6B0, 0.2f);      // the sun's bloom
+                shaders = new Shader[0];
+                break;
+            case Weather.COLD:
+                spriteA = glintSprite();
+                shaders = new Shader[0];
+                break;
+            case Weather.CLOUDY:
+                spriteA = cloudSprite();
+                shaders = new Shader[0];
+                break;
             default:
                 shaders = new Shader[0];
                 break;
         }
+    }
+
+    // ---------------------------------------------------------------- weather sprites (made once, off onDraw)
+
+    /** A soft elliptical glow of {@code w x h}: {@code argb} at the centre, half strength at {@code at}, clear at the rim. */
+    private static Bitmap blobSprite(int w, int h, int argb, float at) {
+        Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        int rgb = argb & 0xFFFFFF;
+        p.setShader(radial(argb, 0x80000000 | rgb, at));
+        c.translate(w / 2f, h / 2f);
+        c.scale(w / 2f, h / 2f);
+        c.drawCircle(0f, 0f, 1f, p);
+        return b;
+    }
+
+    /** A rain streak, 4 x 64: clear at the top, a pale lit head at the bottom. */
+    private static Bitmap streakSprite() {
+        Bitmap b = Bitmap.createBitmap(4, 64, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        Paint p = new Paint();
+        p.setShader(new LinearGradient(0f, 0f, 0f, 64f, new int[]{0x00D6E4F5, 0x66D6E4F5, 0xCCE8F0FA},
+                new float[]{0f, 0.7f, 1f}, Shader.TileMode.CLAMP));
+        c.drawRect(1f, 0f, 3f, 64f, p);
+        p.setShader(null);
+        p.setColor(0x33D6E4F5);
+        c.drawRect(0f, 20f, 1f, 64f, p);
+        c.drawRect(3f, 20f, 4f, 64f, p);
+        return b;
+    }
+
+    /** A four-point frost glint, 32 x 32: two thin crossed rays and a bright point. */
+    private static Bitmap glintSprite() {
+        Bitmap b = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setShader(radial(0xFFF2FAFF, 0x99D8ECFF, 0.25f));
+        c.save();
+        c.translate(16f, 16f);
+        c.scale(16f, 1.6f);
+        c.drawCircle(0f, 0f, 1f, p);
+        c.restore();
+        c.save();
+        c.translate(16f, 16f);
+        c.scale(1.6f, 16f);
+        c.drawCircle(0f, 0f, 1f, p);
+        c.restore();
+        c.save();
+        c.translate(16f, 16f);
+        c.scale(5f, 5f);
+        c.drawCircle(0f, 0f, 1f, p);
+        c.restore();
+        return b;
+    }
+
+    /** A soft cloud, 192 x 80: overlapping puffs, flat-ish underneath. */
+    private static Bitmap cloudSprite() {
+        Bitmap b = Bitmap.createBitmap(192, 80, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setShader(radial(0xB3F1F4F8, 0x66E6EAF0, 0.55f));
+        float[][] puffs = {{50f, 50f, 30f}, {85f, 38f, 34f}, {122f, 42f, 32f}, {150f, 52f, 26f}, {100f, 56f, 30f}};
+        for (float[] f : puffs) {
+            c.save();
+            c.translate(f[0], f[1]);
+            c.scale(f[2], f[2] * 0.82f);
+            c.drawCircle(0f, 0f, 1f, p);
+            c.restore();
+        }
+        return b;
     }
 
     /** A gradient of radius 1 at the origin: {@code inner} at the centre, {@code mid} at {@code at}, clear at 1. */
@@ -121,6 +228,10 @@ public final class FestiveEffectView extends View {
         super.onSizeChanged(w, h, oldw, oldh);
         if (Festival.EFFECT_EMBERS.equals(effect) && h > 0) {
             haze.setShader(new LinearGradient(0f, h, 0f, h * 0.72f, 0x40FF7A1E, 0x00FF7A1E, Shader.TileMode.CLAMP));
+        }
+        if (Weather.STORM.equals(effect) && h > 0) {
+            // the flash lights the sky from above: bright at the top, a faint wash below
+            flash.setShader(new LinearGradient(0f, 0f, 0f, h, 0xFFE4ECFF, 0x55C8D6F5, Shader.TileMode.CLAMP));
         }
     }
 
@@ -149,6 +260,12 @@ public final class FestiveEffectView extends View {
             case Festival.EFFECT_SPARKLES: initSparkles(w, h, secs); break;
             case Festival.EFFECT_EMBERS: initEmbers(w, h, secs); break;
             case Festival.EFFECT_TRICOLOUR: initTricolour(w, h, secs); break;
+            case Weather.RAIN: initRain(w, h, secs, false); break;
+            case Weather.STORM: initRain(w, h, secs, true); break;
+            case Weather.FOG: initFog(w, h, secs); break;
+            case Weather.HOT: initHot(w, h, secs); break;
+            case Weather.COLD: initCold(w, h, secs); break;
+            case Weather.CLOUDY: initCloudy(w, h, secs); break;
             default: count = 0; break;
         }
         playing = true;
@@ -330,6 +447,85 @@ public final class FestiveEffectView extends View {
         shuffle(x0, count);
     }
 
+    private void initRain(float w, float h, float secs, boolean storm) {
+        count = storm ? 70 : 56;
+        slant = storm ? 16f : 11f;
+        // drawn in a frame turned by the slant, so the band is wider than the screen to cover its corners
+        for (int i = 0; i < count; i++) {
+            x0[i] = (-0.2f + 1.4f * (i + rnd.nextFloat()) / count) * w;
+            y0[i] = rnd.nextFloat() * 1.4f * h;                    // where in its loop it starts
+            vy[i] = (storm ? 1.75f : 1.45f) * h * (0.8f + 0.4f * rnd.nextFloat());
+            size[i] = (storm ? 30f : 22f) * dp * (0.7f + 0.6f * rnd.nextFloat());   // streak length
+            alpha[i] = 0.5f + 0.45f * rnd.nextFloat();
+        }
+        shuffle(x0, count);
+        flashT[0] = (0.22f + 0.1f * rnd.nextFloat()) * secs;
+        flashA[0] = storm ? 0.22f : 0f;
+        flashT[1] = (0.58f + 0.1f * rnd.nextFloat()) * secs;
+        flashA[1] = storm && rnd.nextBoolean() ? 0.13f : 0f;          // sometimes a second, fainter one
+    }
+
+    private void initFog(float w, float h, float secs) {
+        count = 3;
+        float[] ys = {0.34f, 0.58f, 0.82f};
+        for (int i = 0; i < count; i++) {
+            y0[i] = (ys[i] + (rnd.nextFloat() - 0.5f) * 0.06f) * h;
+            x0[i] = (-0.3f + 0.12f * rnd.nextFloat()) * w;
+            vx[i] = (rnd.nextBoolean() ? 1f : -1f) * (0.035f + 0.03f * rnd.nextFloat()) * w;   // per second
+            size[i] = (1.5f + 0.3f * rnd.nextFloat()) * w;           // band width; height ~0.3 h
+            amp[i] = (0.32f + 0.08f * rnd.nextFloat()) * h;
+            alpha[i] = 0.46f + 0.1f * rnd.nextFloat();
+            delay[i] = i * 0.08f * secs;
+            life[i] = secs * 0.98f - delay[i];
+        }
+    }
+
+    private void initHot(float w, float h, float secs) {
+        count = 44;
+        for (int i = 0; i < count; i++) {
+            x0[i] = (0.02f + 0.96f * (i + rnd.nextFloat()) / count) * w;
+            y0[i] = (0.45f + 0.6f * rnd.nextFloat()) * h;
+            vy[i] = (28f + 40f * rnd.nextFloat()) * dp;              // rising air
+            amp[i] = (3f + 7f * rnd.nextFloat()) * dp;                // shimmer
+            freq[i] = 1.2f + 1.4f * rnd.nextFloat();
+            phase[i] = rnd.nextFloat() * (float) TAU;
+            size[i] = (2.5f + 3.5f * rnd.nextFloat()) * dp;
+            alpha[i] = 0.35f + 0.35f * rnd.nextFloat();
+            timing(i, secs, 0.4f, 0.45f, 0.6f);
+        }
+        shuffle(x0, count);
+    }
+
+    private void initCold(float w, float h, float secs) {
+        count = 34;
+        for (int i = 0; i < count; i++) {
+            x0[i] = (0.03f + 0.94f * (i + rnd.nextFloat()) / count) * w;
+            y0[i] = (0.04f + 0.8f * rnd.nextFloat()) * h;
+            vy[i] = (8f + 16f * rnd.nextFloat()) * dp;               // a slow settle
+            vx[i] = (2f + 5f * rnd.nextFloat()) * dp;
+            size[i] = (8f + 9f * rnd.nextFloat()) * dp;              // glint radius
+            spin[i] = 4f + 5f * rnd.nextFloat();                     // twinkle, radians per second
+            phase[i] = rnd.nextFloat() * (float) TAU;
+            alpha[i] = 0.7f + 0.3f * rnd.nextFloat();
+            timing(i, secs, 0.55f, 0.32f, 0.45f);
+        }
+        shuffle(x0, count);
+    }
+
+    private void initCloudy(float w, float h, float secs) {
+        count = 3;
+        float[] xs = {0.06f, 0.4f, 0.72f};
+        for (int i = 0; i < count; i++) {
+            size[i] = (0.26f + 0.08f * rnd.nextFloat()) * w;        // cloud width, height ~0.42 of it
+            x0[i] = (xs[i] + (rnd.nextFloat() - 0.5f) * 0.08f) * w - size[i] * 0.5f;
+            y0[i] = (0.02f + 0.1f * rnd.nextFloat()) * h;
+            vx[i] = (0.03f + 0.025f * rnd.nextFloat()) * w;          // per second, all with the wind
+            alpha[i] = 0.5f + 0.14f * rnd.nextFloat();
+            delay[i] = i * 0.07f * secs;
+            life[i] = secs * 0.98f - delay[i];
+        }
+    }
+
     // ---------------------------------------------------------------- drawing
 
     @Override
@@ -342,6 +538,12 @@ public final class FestiveEffectView extends View {
             case Festival.EFFECT_SPARKLES: drawSparkles(c, t); break;
             case Festival.EFFECT_EMBERS: drawEmbers(c, t); break;
             case Festival.EFFECT_TRICOLOUR: drawTricolour(c, t); break;
+            case Weather.RAIN:
+            case Weather.STORM: drawRain(c, t); break;
+            case Weather.FOG: drawFog(c, t); break;
+            case Weather.HOT: drawHot(c, t); break;
+            case Weather.COLD: drawCold(c, t); break;
+            case Weather.CLOUDY: drawCloudy(c, t); break;
             default: break;
         }
         postInvalidateOnAnimation();
@@ -496,6 +698,103 @@ public final class FestiveEffectView extends View {
             c.scale(sx, 1f);
             c.drawRect(-half, -len * 0.5f, half, len * 0.5f, fill);
             c.restore();
+        }
+    }
+
+    /** Fades the whole effect in over {@code in} seconds and out over its last {@code out} seconds. */
+    private float envelope(float t, float in, float out) {
+        float secs = duration / 1000f;
+        return smooth(t / in) * smooth((secs - t) / out);
+    }
+
+    private void drawRain(Canvas c, float t) {
+        float w = getWidth(), h = getHeight();
+        float env = envelope(t, 0.3f, 0.7f);
+        // the flash first, under the streaks: a smooth swell and fade, never a strobe
+        for (int f = 0; f < 2; f++) {
+            if (flashA[f] <= 0f) continue;
+            float lt = t - flashT[f];
+            if (lt <= 0f || lt > 0.7f) continue;
+            float k = lt < 0.09f ? smooth(lt / 0.09f) : (float) Math.pow(1f - (lt - 0.09f) / 0.61f, 2);
+            flash.setAlpha((int) (255 * flashA[f] * k));
+            c.drawRect(0f, 0f, w, h, flash);
+        }
+        if (env <= 0f) return;
+        float loop = 1.4f * h;
+        c.save();
+        c.rotate(slant, w / 2f, h / 2f);
+        for (int i = 0; i < count; i++) {
+            float y = (y0[i] + vy[i] * t) % loop - 0.2f * h;
+            sprite.setAlpha((int) (255 * alpha[i] * env));
+            dst.set(x0[i] - 0.9f * dp, y - size[i], x0[i] + 0.9f * dp, y);
+            c.drawBitmap(spriteA, null, dst, sprite);
+        }
+        c.restore();
+    }
+
+    private void drawFog(Canvas c, float t) {
+        for (int i = 0; i < count; i++) {
+            float lt = t - delay[i];
+            float p = lt / life[i];
+            if (p <= 0f || p >= 1f) continue;
+            float env = smooth(p / 0.3f) * smooth((1f - p) / 0.35f);
+            float x = x0[i] + vx[i] * lt;
+            sprite.setAlpha((int) (255 * alpha[i] * env));
+            dst.set(x, y0[i] - amp[i] / 2f, x + size[i], y0[i] + amp[i] / 2f);
+            c.drawBitmap(spriteA, null, dst, sprite);
+        }
+    }
+
+    private void drawHot(Canvas c, float t) {
+        float w = getWidth(), h = getHeight();
+        // the sun's bloom top right, breathing slowly
+        float env = envelope(t, 0.5f, 0.8f);
+        float breathe = 0.8f + 0.2f * (float) Math.sin(TAU * 0.6f * t);
+        float r = h * 0.42f * (0.94f + 0.06f * breathe);
+        sprite.setAlpha((int) (255 * 0.55f * env * breathe));
+        dst.set(w * 0.9f - r, h * 0.04f - r, w * 0.9f + r, h * 0.04f + r);
+        c.drawBitmap(spriteB, null, dst, sprite);
+        for (int i = 0; i < count; i++) {
+            float lt = t - delay[i];
+            float p = lt / life[i];
+            if (p <= 0f || p >= 1f) continue;
+            float a = smooth(p / 0.25f) * smooth((1f - p) / 0.4f) * alpha[i];
+            float x = x0[i] + amp[i] * (float) Math.sin(TAU * freq[i] * lt + phase[i]);
+            float y = y0[i] - vy[i] * lt;
+            float s = size[i] * (1f + 0.4f * p);
+            sprite.setAlpha((int) (255 * a));
+            dst.set(x - s, y - s, x + s, y + s);
+            c.drawBitmap(spriteA, null, dst, sprite);
+        }
+    }
+
+    private void drawCold(Canvas c, float t) {
+        for (int i = 0; i < count; i++) {
+            float lt = t - delay[i];
+            float p = lt / life[i];
+            if (p <= 0f || p >= 1f) continue;
+            float twinkle = 0.65f + 0.35f * (float) Math.sin(spin[i] * lt + phase[i]);
+            float a = (float) Math.sin(Math.PI * p) * twinkle * alpha[i];
+            float x = x0[i] + vx[i] * lt;
+            float y = y0[i] + vy[i] * lt;
+            float s = size[i] * (0.6f + 0.4f * (float) Math.sin(Math.PI * p));
+            sprite.setAlpha((int) (255 * a));
+            dst.set(x - s, y - s, x + s, y + s);
+            c.drawBitmap(spriteA, null, dst, sprite);
+        }
+    }
+
+    private void drawCloudy(Canvas c, float t) {
+        for (int i = 0; i < count; i++) {
+            float lt = t - delay[i];
+            float p = lt / life[i];
+            if (p <= 0f || p >= 1f) continue;
+            float env = smooth(p / 0.3f) * smooth((1f - p) / 0.35f);
+            float x = x0[i] + vx[i] * lt;
+            float cw = size[i], ch = size[i] * 0.42f;
+            sprite.setAlpha((int) (255 * alpha[i] * env));
+            dst.set(x, y0[i], x + cw, y0[i] + ch);
+            c.drawBitmap(spriteA, null, dst, sprite);
         }
     }
 

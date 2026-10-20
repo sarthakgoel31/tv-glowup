@@ -9,3 +9,4 @@ my-photos/
 .env
 __pycache__/
 tools/wallgen/contact*.jpg
+tools/wallgen/ambient_contact*.jpg

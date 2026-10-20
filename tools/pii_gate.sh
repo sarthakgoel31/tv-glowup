@@ -18,6 +18,12 @@ check "phone number"        '(^|[^0-9])(\+91[ -]?)?[6-9][0-9]{9}([^0-9]|$)'
 check "photo dir"           'family-photos' '^\.gitignore:'
 check "secret"              '(api[_-]?key|secret|token|passw(or)?d)["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"']{8,}|BEGIN [A-Z ]*PRIVATE KEY|gh[pousr]_[A-Za-z0-9]{20}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30}|sk-[A-Za-z0-9]{20}'
 check "name outside allowed" 'sarthak' '^(LICENSE|README\.md):|cv\.sarthakgoel|sarthakgoel31/tv-glowup'
+check "owner location"      '28\.5[0-9]|77\.1[0-9]|safdarjung'
+# Shipped themes must leave weather off: the location is the user's to fill in.
+for cfg in $(echo "$files" | grep -E '^themes/[^/]+/config\.json$'); do
+  loc=$(grep -n -E '"weather_(lat|lon)"[[:space:]]*:[[:space:]]*"[^"]+' "$cfg")
+  [ -z "$loc" ] || hit "weather location set in $cfg" "$loc"
+done
 bad=$(echo "$files" | grep -E '(^|/)(backups|family-photos[^/]*|my-photos)/|\.apk$|(^|/)\.env|\.(jks|keystore|pem|p12)$|local\.properties$')
 [ -z "$bad" ] || hit "forbidden files" "$bad"
 bad=$(echo "$files" | grep -E '(^|/)(dream[^/]*\.png|photos_sheet\.jpg)$')
