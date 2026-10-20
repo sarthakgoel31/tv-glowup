@@ -1,0 +1,11 @@
+build/
+.gradle/
+local.properties
+backups/
+family-photos*/
+my-photos/
+*.apk
+.DS_Store
+.env
+__pycache__/
+tools/wallgen/contact*.jpg

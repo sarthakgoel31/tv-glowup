@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An HDMI port: the wide trapezoid socket with its contact strip. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="22dp" android:height="22dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M2,7h20v6l-3,4H5l-3,-4V7zM4,9v3.3L6,15h12l2,-2.7V9H4z" />
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M6.5,10.5h11v2h-11z" />
+</vector>

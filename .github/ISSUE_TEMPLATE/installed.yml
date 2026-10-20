@@ -1,0 +1,47 @@
+name: I installed it on my TV
+description: Tell us which TV it worked on (this builds the "Works on" list)
+title: "[Installed] <TV brand + model>"
+labels: ["installed"]
+body:
+  - type: input
+    id: tv
+    attributes:
+      label: TV brand and model
+      placeholder: e.g. OnePlus Y Series 32Y1, Mi TV 4A, TCL P615
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android version
+      description: Settings > Device Preferences > About > Version
+      placeholder: e.g. Android 11
+    validations:
+      required: true
+  - type: input
+    id: ram
+    attributes:
+      label: RAM (if you know it)
+      placeholder: e.g. 1 GB
+  - type: textarea
+    id: improved
+    attributes:
+      label: What improved?
+      description: Numbers from ./measure.sh before and after are gold. Anything that broke, say so too.
+      placeholder: |
+        Free RAM 170 MB -> 280 MB, YouTube opens in 1.6 s instead of 3 s...
+    validations:
+      required: true
+  - type: dropdown
+    id: list
+    attributes:
+      label: Which debloat list did you use?
+      options:
+        - devices/oneplus-y-series-android11 (default)
+        - My own list (I can share it below)
+        - DEVICE=none (launcher only)
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot (optional)
+      description: "adb -s $TV exec-out screencap -p > home.png, then drag it here. Hide your Wi-Fi name and family photos first."

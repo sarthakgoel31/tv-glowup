@@ -1,0 +1,34 @@
+name: Something broke
+description: install.sh failed, Home misbehaves, an app stopped working, restore didn't restore
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: input
+    id: tv
+    attributes:
+      label: TV brand, model and Android version
+      placeholder: e.g. OnePlus Y Series 43Y1, Android 11
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Terminal output
+      description: Paste the output of the script that failed. Remove your TV's IP address and Wi-Fi name.
+      render: shell
+  - type: dropdown
+    id: restored
+    attributes:
+      label: Did ./restore.sh fix it?
+      options:
+        - Didn't try yet
+        - Yes, TV is back to normal
+        - No, still broken
+    validations:
+      required: true

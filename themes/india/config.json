@@ -1,0 +1,33 @@
+{
+  "background_color": "#070A14",
+  "wallpaper": true,
+  "sky_intensity": 40,
+  "columns": 4,
+  "dock_apps": [
+    "in.startv.hotstar",
+    "com.google.android.youtube.tv",
+    "com.netflix.ninja",
+    "com.amazon.amazonvideo.livingroom",
+    "com.sonyliv",
+    "com.viacom18.tv.voot",
+    "com.htlabs.ottplay",
+    "tv.airtel.xstream.tvapp"
+  ],
+  "hidden_apps": [
+    "com.airoha.ble.ota",
+    "com.android.deskclock",
+    "com.android.documentsui",
+    "com.mediatek.tv.service",
+    "com.mstar.android.tv.disclaimercustomization",
+    "me.efesser.flauncher",
+    "com.mediatek.wwtv.mediaplayer",
+    "com.oneplus.tv.remote",
+    "com.mediatek.wwtv.tvcenter"
+  ],
+  "live_tv_package": "com.mediatek.wwtv.tvcenter",
+  "greeting_name": "",
+  "festival": "auto",
+  "reduced_motion": true,
+  "rows_below_dock": 0,
+  "app_library": true
+}

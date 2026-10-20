@@ -1,0 +1,32 @@
+# TV Glowup debloat list: OnePlus Y Series, Android 11 (MediaTek, build "shibuya"), 1 GB RAM.
+#
+# install.sh runs `pm disable-user --user 0 <package>` for every line below.
+# Nothing is uninstalled. Every line is reversible at any time:
+#     adb -s $TV shell pm enable <package>
+# or run ./restore.sh to put back everything at once.
+#
+# Lines starting with # are ignored. Package names only, one per line.
+
+# --- Preinstalled OTT apps you probably never opened (reinstall/enable any time) ---
+com.spotify.tv.android                  # Spotify
+com.graymatrix.did                      # ZEE5
+com.fancode.tv                          # FanCode
+tv.airtel.xstream.tvapp                 # Airtel Xstream Play
+com.shemaroo.shemarootv                 # ShemarooMe
+com.htlabs.ottplay                      # OTTplay
+com.amazon.minitv.androidtv.app         # Amazon miniTV
+
+# --- Google extras that run in the background on a 1 GB TV ---
+com.google.android.apps.nbu.smartconnect.tv   # Google "smartconnect" phone-pairing helper
+com.google.android.play.games           # Google Play Games
+com.google.android.videos               # Google Play Movies / Google TV app
+com.google.android.youtube.tvmusic      # YouTube Music
+com.google.android.feedback             # Google feedback reporter
+com.google.android.backdrop             # Backdrop screensaver (replaced by the Family Photos screensaver)
+com.google.android.leanbacklauncher.partnercustomizer   # pushes "promoted" apps onto the stock home screen
+
+# --- Shop demo mode, e-manual, printing ---
+fusion.android.tv.demo                  # in-store demo mode
+com.smartdevice.common.demonow          # in-store demo mode
+com.Smartdevice.emanual                 # on-screen e-manual
+com.android.printspooler                # print service (a TV has nothing to print)
