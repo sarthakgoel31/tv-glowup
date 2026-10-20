@@ -47,6 +47,10 @@ Measured with `./measure.sh` on a **OnePlus Y Series, 1 GB RAM, Android 11**, ~2
 
 ![Home screen during Diwali](docs/screenshots/home-diwali.png)
 
+**Home-button animations**, real screenshots from the TV. Weather ones play on ordinary days, festival ones on their dates. Each is a 2-3 s Canvas effect with under 1% janky frames on a 1 GB TV:
+
+![Rain, storm, fog, hot, cold, cloudy, Christmas snow, Holi colours, New Year fireworks, Lohri embers, tricolour confetti and Diwali petals](docs/effects.jpg)
+
 ## Quick start
 
 You need a laptop on the same Wi-Fi as the TV, with `adb` (macOS: `brew install android-platform-tools`), Java 17 and the Android SDK to build the launcher (macOS: `brew install openjdk@17` and `brew install --cask android-commandlinetools`).
